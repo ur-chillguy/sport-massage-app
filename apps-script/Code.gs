@@ -41,6 +41,16 @@ function slotStatus(st, blokir, idx, date, t, dur, lok, now) {
   return 'ok';
 }
 
+/* ---------- notifikasi email (tanpa data kesehatan) ---------- */
+function notify(env, db, subject, lines) {
+  try {
+    var st = db.getSettings() || {}, to = String(st.emailNotif || '').trim();
+    if (!to || !env.mail) return;
+    env.mail(to, '[' + (st.nama || 'Reservasi') + '] ' + subject, lines.join('\n') + '\n\nBuka panel admin untuk detail dan konfirmasi.');
+  } catch (e) { }
+}
+function fmtTgl(t) { var d = pd(t); return ['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
+
 /* ---------- respons umum ---------- */
 function ok(x) { x = x || {}; x.ok = true; return x; }
 function fail(code, msg) { return { ok: false, err: code, msg: msg || code }; }
@@ -126,6 +136,7 @@ function book(env, db, q) {
     if (skema === 'LUNAS' && st.dpAktif) b.riwayat.push({ t: now, x: 'Pasien memilih bayar lunas di awal' });
     b.riwayat.push({ t: now, x: 'Booking dibuat lewat halaman pasien' });
     db.put('bookings', b);
+    notify(env, db, 'Booking baru ' + b.kode, ['Pasien: ' + nama, 'Layanan: ' + L.nama + (lok === 'rumah' ? ' (home visit)' : ' (studio)'), 'Jadwal: ' + fmtTgl(b.tgl) + ' pukul ' + b.jam, 'Total: Rp' + total, 'Bayar: ' + metode.toUpperCase() + (skema === 'DP' ? ' (DP)' : ''), 'Tahan sampai: ' + new Date(b.holdUntil).toLocaleString('id-ID', { timeZone: 'Asia/Makassar' }), 'WhatsApp: ' + wa]);
     return ok({ booking: b });
   });
 }
@@ -152,6 +163,7 @@ function bukti(env, db, q) {
     b.bukti = 'blob:' + b.id;
     (b.riwayat = b.riwayat || []).push({ t: env.now(), x: 'Pasien mengunggah bukti bayar' });
     db.put('bookings', b);
+    notify(env, db, 'Bukti bayar masuk ' + b.kode, ['Pasien: ' + b.pasien.nama, 'Jadwal: ' + fmtTgl(b.tgl) + ' pukul ' + b.jam, 'Total: Rp' + b.total]);
     return ok({ booking: b });
   });
 }
@@ -294,6 +306,7 @@ var gasEnv = {
   withLock: function (fn) { var l = LockService.getScriptLock(); l.waitLock(25000); try { return fn(); } finally { SpreadsheetApp.flush(); l.releaseLock(); } },
   cacheGet: function (k) { return CacheService.getScriptCache().get(k); },
   cachePut: function (k, v, sec) { CacheService.getScriptCache().put(k, v, Math.min(sec, 21600)); },
+  mail: function (to, subject, body) { MailApp.sendEmail(to, subject, body); },
   pin: function () { return PropertiesService.getScriptProperties().getProperty('ADMIN_PIN'); }
 };
 
@@ -309,4 +322,5 @@ function setup() {
   bookS_(); simpleS_('kas'); simpleS_('blokir'); setS_(); blobS_();
   if (!PropertiesService.getScriptProperties().getProperty('ADMIN_PIN')) Logger.log('PENTING: isi Script property ADMIN_PIN (Project Settings > Script properties).');
   Logger.log('Siap.');
+  MailApp.getRemainingDailyQuota(); /* meminta izin kirim email */
 }

@@ -104,7 +104,7 @@ function defaultSettings(){return{
   jam:{0:[['07:00','13:00']],1:[['16:00','21:00']],2:[['16:00','21:00']],3:[['16:00','21:00']],4:[],5:[['15:00','21:00']],6:[['07:00','12:00'],['15:00','20:00']]},
   pengecualian:[],
   terapis:[{id:'t1',nama:'Terapis utama'}],
-  qrisNama:'', qrisAda:false,
+  qrisNama:'', qrisAda:false, emailNotif:'',
   rekening:[],
 }}
 
@@ -806,7 +806,7 @@ function tSet(){
   const num=(label,path,hint='',attrs='')=>inp(label,path,`type="number" data-type="num" ${attrs}`,hint);
   const chk=(label,path)=>`<label class="check"><input type="checkbox" id="s-${path.replace(/\./g,'-')}" data-s="${path}" ${getPath(st,path)?'checked':''}><span>${label}</span></label>`;
   return `<div class="a-head"><div><span class="eyebrow">Bisa diubah tanpa coding</span><h2>Pengaturan</h2></div></div>
-  <div class="panel"><h3>Usaha</h3><div class="grid2">${inp('Nama usaha','nama','','Tampil di halaman pasien.')}${inp('Nomor WhatsApp admin','wa','type="tel"','Format 62…, dipakai tombol WA pasien.')}</div>${inp('Kota / wilayah','kota','','Tampil di bawah nama usaha.')}${inp('Tagline','tagline')}${inp('Alamat studio','alamat')}<div class="grid2">${inp('Link Google Maps','maps','placeholder="https://…"')}${inp('Link ulasan','ulasan','placeholder="https://…"','Dipakai di template WA “Minta ulasan”.')}</div></div>
+  <div class="panel"><h3>Usaha</h3><div class="grid2">${inp('Nama usaha','nama','','Tampil di halaman pasien.')}${inp('Nomor WhatsApp admin','wa','type="tel"','Format 62…, dipakai tombol WA pasien.')}</div>${inp('Email notifikasi','emailNotif','type="text" placeholder="nama@gmail.com"','Booking baru dan bukti bayar dikirim ke email ini. Boleh lebih dari satu, pisahkan dengan koma. Isi email tidak memuat data kesehatan pasien.')}${inp('Kota / wilayah','kota','','Tampil di bawah nama usaha.')}${inp('Tagline','tagline')}${inp('Alamat studio','alamat')}<div class="grid2">${inp('Link Google Maps','maps','placeholder="https://…"')}${inp('Link ulasan','ulasan','placeholder="https://…"','Dipakai di template WA “Minta ulasan”.')}</div></div>
   <div class="panel"><div class="panel-h"><h3>Layanan & harga</h3><button class="btn btn-s btn-sm" data-act="svc-add">${ICON.plus}Tambah layanan</button></div>
     ${st.layanan.map((l,i)=>`<div class="grid2" style="border-top:1px solid var(--line-2);padding-top:12px">${inp('Nama layanan','layanan.'+i+'.nama')}<div class="grid2" style="grid-template-columns:1fr 1fr">${num('Durasi (menit)','layanan.'+i+'.durasi','','min="15" step="5"')}${num('Harga (Rp)','layanan.'+i+'.harga','','min="0" step="5000"')}</div>${inp('Keterangan','layanan.'+i+'.ket')}<div style="display:flex;align-items:flex-end"><button class="btn btn-g btn-sm" data-act="svc-del" data-i="${i}" ${st.layanan.length<2?'disabled':''}>Hapus layanan</button></div></div>`).join('')}</div>
   <div class="panel"><h3>Home visit</h3>${chk('Terima home visit','hv.aktif')}<div class="grid2">${num('Biaya tambahan (Rp)','hv.biaya','','min="0" step="5000"')}${num('Waktu tempuh (menit)','hv.buffer','Dikunci sebelum dan sesudah sesi home visit.','min="0" step="5"')}</div>${inp('Area layanan','hv.area')}</div>
