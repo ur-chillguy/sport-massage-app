@@ -486,9 +486,22 @@ function renderAdmin(){
   }
   refreshExpiry();
   const now=Date.now(),pend=S.bookings.filter(b=>b.status==='MENUNGGU'||(CONF.includes(b.status)&&endTs(b)<now)).length;
-  const body=(A.tab==='hari'?setupBanner():'')+{hari:tHari,jadwal:tJadwal,booking:tBooking,keuangan:tKeu,praktik:tPraktik,pengaturan:tSet}[A.tab]();
-  app.innerHTML=`<div class="a-wrap gut"><nav class="a-nav" aria-label="Menu admin"><div class="who"><img class="who-logo" src="${LOGO}" width="1000" height="381" alt="${esc(S.settings.nama)} ${esc(S.settings.kota||'')}"><span class="eyebrow">Panel terapis</span></div>${TABS.map(([id,l,ic])=>`<button class="tab" data-act="tab" data-v="${id}" ${A.tab===id?'aria-current="page"':''}>${ICON[ic]}${l}${id==='hari'&&pend?`<span class="cnt">${pend}</span>`:''}</button>`).join('')}<button class="tab tab-out" data-act="logout">${ICON.left}Keluar</button></nav><section class="a-main">${body}</section></div>`;
+  const body=(A.tab==='hari'?setupBanner():'')+{hari:tHari,jadwal:tJadwal,booking:tBooking,keuangan:tKeu,praktik:tPraktik,pengaturan:tSet,pemilik:tOwner}[A.tab]();
+  app.innerHTML=`<div class="a-wrap gut"><nav class="a-nav" aria-label="Menu admin"><div class="who"><img class="who-logo" src="${LOGO}" width="1000" height="381" alt="${esc(S.settings.nama)} ${esc(S.settings.kota||'')}"><span class="eyebrow">Panel terapis</span></div>${(A.role==='owner'?TABS.concat([['pemilik','Pemilik','lock']]):TABS).map(([id,l,ic])=>`<button class="tab" data-act="tab" data-v="${id}" ${A.tab===id?'aria-current="page"':''}>${ICON[ic]}${l}${id==='hari'&&pend?`<span class="cnt">${pend}</span>`:''}</button>`).join('')}<button class="tab tab-out" data-act="logout">${ICON.left}Keluar</button></nav><section class="a-main">${body}</section></div>`;
   afterRender();
+}
+function tOwner(){
+  const d=A.diag;
+  const kv=(k,v)=>`<dt>${k}</dt><dd>${v}</dd>`;
+  return `<div class="a-head"><div><span class="eyebrow">Hanya terlihat dengan PIN pemilik</span><h2>Pemilik & perawatan</h2></div></div>
+  <div class="panel"><div class="panel-h"><h3>Kesehatan sistem</h3><button class="btn btn-p btn-sm" data-act="own-diag">${A.diagBusy?'Memeriksa…':'Periksa sekarang'}</button></div>
+  ${d?`<dl class="sum">${kv('Versi server','v'+d.v)}${kv('Booking / Kas / Blokir',`${d.counts.bookings} / ${d.counts.kas} / ${d.counts.blokir}`)}${kv('Berkas (bukti, QRIS)',d.counts.berkas+' bagian')}${kv('Pengaturan',d.settingsAda?`tersimpan (${d.settingsBytes} karakter)`:'belum ada')}${kv('PIN admin / pemilik',(d.adminPin?'ada':'KOSONG')+' / '+(d.ownerPin?'ada':'KOSONG'))}${kv('Email notifikasi',esc(d.emailTujuan||'belum diisi'))}${kv('Sisa kuota email hari ini',d.mailQuota==null?'-':d.mailQuota)}${kv('Percobaan PIN gagal',d.gagalLogin+' dari 10')}</dl>`:'<p class="muted">Tekan "Periksa sekarang" untuk melihat kondisi server.</p>'}</div>
+  <div class="panel"><div class="panel-h"><h3>Catatan error server</h3><button class="btn btn-s btn-sm" data-act="own-log">Hapus catatan</button></div>
+  ${d?(d.log.length?`<pre class="log">${esc(d.log.join('\n'))}</pre>`:'<p class="muted">Tidak ada error tercatat.</p>'):'<p class="muted">Periksa sistem dulu.</p>'}</div>
+  <div class="panel"><h3>Alat</h3><div class="btn-row"><button class="btn btn-s btn-sm" data-act="own-mail">Kirim email uji</button><button class="btn btn-s btn-sm" data-act="own-unlock">Buka kunci login</button></div>
+  <label class="field" style="margin-top:12px"><span>Atur ulang PIN admin (teman), tanpa PIN lama</span><input class="in" id="own-pin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="6 sampai 12 angka"></label>
+  <div class="btn-row"><button class="btn btn-d btn-sm" data-act="own-reset">Atur ulang PIN admin</button></div>
+  <small class="muted">PIN pemilik hanya bisa diubah di Apps Script (Script properties: OWNER_PIN). Data lengkap ada di Google Sheet.</small></div>`;
 }
 function setupBanner(){
   const st=S.settings,m=[];
@@ -821,8 +834,12 @@ function tSet(){
   <div class="panel"><h3>Pembatalan</h3><div class="grid2">${num('Potongan pembatalan (% dari DP)','potonganBatal','Sisanya dikembalikan ke pasien. Admin tetap bisa memilih kembalikan penuh.','min="0" max="100" step="5"')}</div></div>
   <div class="panel"><h3>Terapis</h3>${st.terapis.map((t,i)=>inp('Nama terapis','terapis.'+i+'.nama')).join('')}
     <div class="note-box">Tahap berikutnya: pasien bisa memilih terapis, admin menugaskan terapis per booking, dan tiap terapis punya jam praktik sendiri. Data booking sudah menyimpan kolom terapis sejak sekarang.</div></div>
-  <div class="panel"><h3>Keamanan</h3><div class="note-box">${ICON.lock} PIN admin disimpan di Google Apps Script (Project Settings, Script properties, <b>ADMIN_PIN</b>), bukan di halaman ini. Untuk mengganti PIN, ubah nilainya di sana lalu keluar dan masuk lagi.</div>
-    <div class="btn-row"><button class="btn btn-s btn-sm" data-act="logout">Keluar dari panel</button></div></div>`;
+  <div class="panel"><h3>Keamanan</h3><p class="muted" style="margin:0 0 8px">Ganti PIN admin. PIN baru 6 sampai 12 angka. Setelah diganti, perangkat lain yang sedang masuk akan keluar sendiri.</p>
+    <form id="pinchg" class="grid2" autocomplete="off"><label class="field"><span>PIN lama</span><input class="in" id="pc-old" type="password" inputmode="numeric" maxlength="12" autocomplete="off"></label>
+    <span></span><label class="field"><span>PIN baru</span><input class="in" id="pc-new" type="password" inputmode="numeric" maxlength="12" autocomplete="off"></label>
+    <label class="field"><span>Ulangi PIN baru</span><input class="in" id="pc-new2" type="password" inputmode="numeric" maxlength="12" autocomplete="off"></label></form>
+    <p class="err" id="pc-err" role="alert"></p>
+    <div class="btn-row"><button class="btn btn-p btn-sm" data-act="pin-ganti">Simpan PIN baru</button><button class="btn btn-s btn-sm" data-act="logout">Keluar dari panel</button></div></div>`;
 }
 
 /* ================= finance ================= */
@@ -972,6 +989,7 @@ async function pollPasien(){
 setInterval(()=>{MODE==='admin'?pollAdmin():pollPasien()},20000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)(MODE==='admin'?pollAdmin():pollPasien())});
 function applyLoad(r){
+  A.role=r.role;
   S={settings:Object.assign(defaultSettings(),r.settings||{}),bookings:r.bookings,kas:r.kas,blokir:r.blokir,skew:r.now-Date.now()};
   S.settings.hv=Object.assign(defaultSettings().hv,S.settings.hv||{});
   snapAll();if(!r.settings)SNAP.settings='';
@@ -993,6 +1011,17 @@ const ACTIVE=['MENUNGGU',...CONF];
 
 const ACT={
   logout:()=>adminLogout(false),
+  'pin-ganti':async()=>{const o=$('#pc-old').value,n=$('#pc-new').value,n2=$('#pc-new2').value,er=$('#pc-err');
+    if(!/^\d{6,12}$/.test(n)){er.textContent='PIN baru harus 6 sampai 12 angka.';return}
+    if(n!==n2){er.textContent='Pengulangan PIN baru tidak sama.';return}
+    if(!o){er.textContent='Isi PIN lama.';return}
+    er.textContent='';const r=await api('setpin',{old:o,pin:n});
+    if(r.ok){TOKEN=r.token;try{sessionStorage.setItem('sm-tok',TOKEN)}catch(e){}$('#pinchg').reset();toast('PIN diganti. Gunakan PIN baru saat masuk lagi.')}else er.textContent=r.msg||'Gagal mengganti PIN.'},
+  'own-diag':async()=>{A.diagBusy=true;renderAdmin();const r=await api('diag');A.diagBusy=false;if(r.ok)A.diag=r;else toast(r.msg||'Gagal memeriksa');renderAdmin()},
+  'own-log':async()=>{const r=await api('logclear');if(r.ok){if(A.diag)A.diag.log=[];toast('Catatan dihapus');renderAdmin()}else toast(r.msg||'Gagal')},
+  'own-mail':async()=>{toast('Mengirim email uji…');const r=await api('testmail');toast(r.ok?'Email uji terkirim ke '+r.to:(r.msg||'Gagal mengirim'))},
+  'own-unlock':async()=>{const r=await api('lockclear');toast(r.ok?'Kunci login dibuka':(r.msg||'Gagal'))},
+  'own-reset':async()=>{const v=$('#own-pin').value;if(!/^\d{6,12}$/.test(v))return toast('PIN harus 6 sampai 12 angka');const r=await api('resetpin',{pin:v});if(r.ok){TOKEN=r.token;try{sessionStorage.setItem('sm-tok',TOKEN)}catch(e){}$('#own-pin').value='';toast('PIN admin diatur ulang')}else toast(r.msg||'Gagal')},
   'bukti-lihat':async el=>{const id=el.dataset.v;el.disabled=true;el.textContent='Memuat…';const r=await api('blobget',{key:'bukti:'+id});if(r.ok){A.bimg[id]=r.data;renderSheet()}else{toast(r.msg||'Gagal memuat bukti');el.disabled=false;el.textContent='Lihat bukti bayar'}},
   'qris-lihat':async()=>{const r=await api('blobget',{key:'qris'});if(r.ok){A.qrPrev=r.data;renderAdmin()}else toast(r.msg||'Gagal memuat QRIS')},
   'qris-hapus':()=>{S.settings.qrisAda=false;A.qrPrev=null;save();toast('QRIS dimatikan. Pasien tidak melihat pilihan QRIS.');renderAdmin()},

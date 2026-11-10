@@ -1,6 +1,6 @@
 // Arjuna Sport Massage - server (Apps Script). Dibuat otomatis, jangan diedit manual.
 /* ===== Arjuna Sport Massage: logika server (dipakai Apps Script & uji lokal) ===== */
-var VERSION = 1;
+var VERSION = 2;
 var LOCK_SET = { MENUNGGU: 1, DIKONFIRMASI: 1, DP: 1, LUNAS: 1, SELESAI: 1, TIDAK_DATANG: 1 };
 var COLLS = { bookings: 1, kas: 1, blokir: 1 };
 
@@ -47,7 +47,7 @@ function notify(env, db, subject, lines) {
     var st = db.getSettings() || {}, to = String(st.emailNotif || '').trim();
     if (!to || !env.mail) return;
     env.mail(to, '[' + (st.nama || 'Reservasi') + '] ' + subject, lines.join('\n') + '\n\nBuka panel admin untuk detail dan konfirmasi.');
-  } catch (e) { }
+  } catch (e) { try { if (db.logAdd) db.logAdd(env.now(), 'email gagal: ' + String(e && e.message || e)); } catch (x) { } }
 }
 function fmtTgl(t) { var d = pd(t); return ['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()] + ' ' + d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear(); }
 
@@ -172,18 +172,42 @@ function bukti(env, db, q) {
 function login(env, q) {
   var fails = +(env.cacheGet('fails') || 0);
   if (fails >= 10) return fail('terkunci', 'Terlalu banyak percobaan. Coba lagi 10 menit lagi.');
-  var pin = env.pin();
-  if (!pin) return fail('pin_belum', 'PIN admin belum diatur di Apps Script (Script properties: ADMIN_PIN).');
-  if (String(q.pin || '') !== String(pin)) { env.cachePut('fails', String(fails + 1), 600); return fail('pin', 'PIN salah.'); }
+  var pin = env.pin(), owner = env.ownerPin ? env.ownerPin() : '', given = String(q.pin || ''), role = '';
+  if (!pin && !owner) return fail('pin_belum', 'PIN admin belum diatur di Apps Script (Script properties: ADMIN_PIN).');
+  if (owner && given === String(owner)) role = 'owner';
+  else if (pin && given === String(pin)) role = 'admin';
+  if (!role) { env.cachePut('fails', String(fails + 1), 600); return fail('pin', 'PIN salah.'); }
   var tok = uid() + uid() + uid();
-  env.cachePut('tok:' + tok, '1', 21600);
+  env.cachePut('tok:' + tok, role + ':' + (env.pinGen ? env.pinGen() : '0'), 21600);
+  return ok({ token: tok, role: role });
+}
+function authed(env, q) {
+  if (!q.t) return null;
+  var v = env.cacheGet('tok:' + q.t); if (!v) return null;
+  var p = String(v).split(':');
+  if ((env.pinGen ? env.pinGen() : '0') !== (p[1] || '0')) return null;
+  return p[0];
+}
+function validPin(p) { return /^\d{6,12}$/.test(String(p || '')); }
+function setPin(env, q, role) {
+  if (role !== 'owner' && String(q.old || '') !== String(env.pin() || '')) { env.cachePut('fails', String(+(env.cacheGet('fails') || 0) + 1), 600); return fail('pin', 'PIN lama salah.'); }
+  if (!validPin(q.pin)) return fail('data', 'PIN baru harus 6 sampai 12 angka.');
+  if (env.ownerPin && env.ownerPin() && String(q.pin) === String(env.ownerPin())) return fail('data', 'PIN itu tidak bisa dipakai. Pilih PIN lain.');
+  env.setPin(String(q.pin));
+  var tok = uid() + uid() + uid();
+  env.cachePut('tok:' + tok, role + ':' + env.pinGen(), 21600);
   return ok({ token: tok });
 }
-function authed(env, q) { return !!(q.t && env.cacheGet('tok:' + q.t)); }
+function diag(env, db) {
+  var c = db.counts(), st = db.getSettings();
+  return ok({ v: VERSION, now: env.now(), counts: c, settingsAda: !!st, settingsBytes: st ? JSON.stringify(st).length : 0,
+    emailTujuan: st ? (st.emailNotif || '') : '', mailQuota: env.mailQuota ? env.mailQuota() : null,
+    adminPin: !!env.pin(), ownerPin: !!(env.ownerPin && env.ownerPin()), gagalLogin: +(env.cacheGet('fails') || 0), log: db.logGet ? db.logGet(40) : [] });
+}
 
-function admLoad(env, db) {
+function admLoad(env, db, role) {
   env.withLock(function () { expire(env, db); });
-  return ok({ settings: db.getSettings(), bookings: db.all('bookings'), kas: db.all('kas'), blokir: db.all('blokir'), now: env.now() });
+  return ok({ role: role, settings: db.getSettings(), bookings: db.all('bookings'), kas: db.all('kas'), blokir: db.all('blokir'), now: env.now() });
 }
 function admOps(env, db, q) {
   var ops = q.ops || [];
@@ -222,19 +246,30 @@ function handle(env, db, q) {
       case 'qris': { var d = db.blobGet('qris'); return d ? ok({ data: d }) : fail('kosong', 'QRIS belum diunggah.'); }
       case 'login': return login(env, q);
     }
-    if (!authed(env, q)) return fail('auth', 'Sesi habis. Masuk lagi dengan PIN.');
+    var role = authed(env, q);
+    if (!role) return fail('auth', 'Sesi habis. Masuk lagi dengan PIN.');
     switch (q.a) {
-      case 'load': return admLoad(env, db);
+      case 'load': return admLoad(env, db, role);
       case 'ops': return admOps(env, db, q);
       case 'blobput': return admBlobPut(env, db, q);
       case 'blobget': { var key = String(q.key || ''); if (key !== 'qris' && key.indexOf('bukti:') !== 0) return fail('data', 'Kunci tidak dikenal.'); var x = db.blobGet(key); return x ? ok({ data: x }) : fail('kosong', 'Tidak ada berkas.'); }
+      case 'setpin': return setPin(env, q, role);
       case 'logout': env.cachePut('tok:' + q.t, '', 1); return ok({});
     }
+    if (role === 'owner') {
+      switch (q.a) {
+        case 'diag': return diag(env, db);
+        case 'resetpin': return setPin(env, { pin: q.pin }, 'owner');
+        case 'testmail': { var st = db.getSettings() || {}, to = String(q.to || st.emailNotif || '').trim(); if (!to) return fail('data', 'Isi email tujuan dulu.'); try { env.mail(to, '[Uji] Notifikasi Arjuna Sport Massage', 'Email uji dari panel pemilik. Kalau ini masuk, notifikasi berfungsi.'); } catch (e) { return fail('mail', 'Gagal kirim: ' + (e && e.message || e)); } return ok({ to: to }); }
+        case 'logclear': db.logClear(); return ok({});
+        case 'lockclear': env.cachePut('fails', '0', 1); return ok({});
+      }
+    }
     return fail('aksi', 'Aksi tidak dikenal.');
-  } catch (e) { return fail('server', String(e && e.message || e)); }
+  } catch (e) { try { if (db.logAdd) db.logAdd(env.now(), String(q.a) + ': ' + String(e && e.message || e)); } catch (x) { } return fail('server', String(e && e.message || e)); }
 }
 /* ===== Adaptor Apps Script: Google Sheets sebagai database ===== */
-var SHEETS = { bookings: 'Booking', kas: 'Kas', blokir: 'Blokir', settings: 'Pengaturan', blob: 'Berkas' };
+var SHEETS = { log: 'Log', bookings: 'Booking', kas: 'Kas', blokir: 'Blokir', settings: 'Pengaturan', blob: 'Berkas' };
 var CHUNK = 45000;
 
 function sh_(name, head, textCols) {
@@ -262,7 +297,12 @@ function bookRow_(b) {
   return [b.id, b.tgl, b.jam, b.durasi, b.lokasi, b.buffer || 0, b.status, b.holdUntil || 0, b.pasien.wa, b.kode, b.pasien.nama, b.total, JSON.stringify(b)];
 }
 
+function logS_() { return sh_(SHEETS.log, ['waktu', 'pesan'], [2]); }
 var gasDb = {
+  counts: function () { var b = bookS_(), k = simpleS_('kas'), x = simpleS_('blokir'), f = blobS_(); return { bookings: Math.max(0, b.getLastRow() - 1), kas: Math.max(0, k.getLastRow() - 1), blokir: Math.max(0, x.getLastRow() - 1), berkas: Math.max(0, f.getLastRow() - 1) }; },
+  logAdd: function (t, msg) { var s = logS_(); s.appendRow([Utilities.formatDate(new Date(t), 'Asia/Makassar', 'yyyy-MM-dd HH:mm:ss'), String(msg).slice(0, 500)]); var n = s.getLastRow(); if (n > 301) s.deleteRows(2, n - 301); },
+  logGet: function (n) { var r = rows_(logS_()); return r.slice(-n).reverse().map(function (x) { return String(x[0]) + '  ' + String(x[1]); }); },
+  logClear: function () { var s = logS_(), n = s.getLastRow(); if (n > 1) s.deleteRows(2, n - 1); },
   getSettings: function () { var r = rows_(setS_()); for (var i = 0; i < r.length; i++) if (r[i][0] === 'main') return JSON.parse(r[i][1]); return null; },
   putSettings: function (v) {
     var s = setS_(), row = findRow_(s, 'main'), val = JSON.stringify(v);
@@ -307,7 +347,11 @@ var gasEnv = {
   cacheGet: function (k) { return CacheService.getScriptCache().get(k); },
   cachePut: function (k, v, sec) { CacheService.getScriptCache().put(k, v, Math.min(sec, 21600)); },
   mail: function (to, subject, body) { MailApp.sendEmail(to, subject, body); },
-  pin: function () { return PropertiesService.getScriptProperties().getProperty('ADMIN_PIN'); }
+  pin: function () { return PropertiesService.getScriptProperties().getProperty('ADMIN_PIN'); },
+  ownerPin: function () { return PropertiesService.getScriptProperties().getProperty('OWNER_PIN') || ''; },
+  pinGen: function () { return PropertiesService.getScriptProperties().getProperty('PIN_GEN') || '0'; },
+  setPin: function (p) { var sp = PropertiesService.getScriptProperties(); sp.setProperty('ADMIN_PIN', p); sp.setProperty('PIN_GEN', String(+(sp.getProperty('PIN_GEN') || 0) + 1)); },
+  mailQuota: function () { return MailApp.getRemainingDailyQuota(); }
 };
 
 function out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
